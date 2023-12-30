@@ -164,7 +164,7 @@ def incrFrame10():
         st.session_state['frame'] = st.session_state['frame'] + 10
     st.text(str(st.session_state['frame']))
 
-def decrFrame10(count):
+def decrFrame10():
     if st.session_state.frame > 10:
         st.session_state['frame'] = st.session_state['frame'] - 10
         st.text(str(st.session_state['frame']))
