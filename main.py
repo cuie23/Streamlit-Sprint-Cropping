@@ -1,15 +1,18 @@
+import base64
 import cv2
 from ultralytics import YOLO
-import imageio
 import numpy as np
-import math
 import PIL
-from PIL import ImageTk, Image  
-import tkinter as tk
-from tkinter import filedialog as fd
-from tkinter import *
-from pynput.mouse import Listener
+from PIL import Image  
+import pandas as pd
 import streamlit as st
+from io import BytesIO
+import os
+
+st.set_page_config(layout="wide")
+st.header('Cropping App')
+st.subheader('Please allow the program to run for a few seconds after pressing a button')
+st.subheader('This mainly applies to the \"add to board\" button')
 
 # Sets up letter dictionary
 letterCrops = {}
@@ -17,7 +20,7 @@ letterCrops = {}
 letter_w = 130
 letter_h = 212
 for i in range (3):
-    for j in range (7):
+    for j in range (7)  :
         char = chr(97 + 7*i + j)
         letterCrops.update({char : (105 + j*letter_w + j*63, 100 + i*letter_h, 105 + (j+1)*letter_w + j*63, 100 + (i+1)*letter_h)})
 
@@ -72,8 +75,11 @@ def getLetter(char):
         output[:, :, :] = 255
 
         return output
-
-    letters = cv2.imread('letters.jpg')
+    current_path = os.path.abspath(__file__)
+    curr_dir = current_path[:current_path.rfind("\\")+1]
+    file_path = curr_dir + 'letters.jpg'
+    
+    letters = cv2.imread(file_path)
 
     output = np.zeros((212, 145, 3))
     output[:, :, :] = 255
@@ -89,130 +95,128 @@ GUI_height = 750
 img_width = int((GUI_width*2)/5)
 img_height = int((GUI_width*2)/5)
 
-# GUI setup
-window=tk.Tk()
-input_dim = str(GUI_width)+'x'+str(GUI_height)
-window.geometry(input_dim)
-
-# Some counter variables to keep track of which frame/how many images have been pasted respectively
-frameNumber = IntVar()
-frameNumber.set(1)
-cropped_frameNumbers = []
-cropped_frameX = []
-cropNumber = IntVar()
-cropNumber.set(0)
-
-# File Variable
-currFile = StringVar()
-currFile.set('black_screen.mp4')
-
-# Bounding box variables 
-box_x1 = IntVar()
-box_y1 = IntVar()
-box_x2 = IntVar()
-box_y2 = IntVar()
-box_x1.set(-1)
-box_y1.set(-1)
-box_x2.set(-1)
-box_y2.set(-1)
-
+# Creates variable for total frame count in the uploaded video
+if 'total_frame_count' not in st.session_state:
+    st.session_state['total_frame_count'] = 0
 
 # Gets video from mp4 file
-cap = cv2.VideoCapture(currFile.get())
-cap.set(cv2.CAP_PROP_POS_FRAMES, frameNumber.get())
+cap = cv2.VideoCapture('black_screen.mp4')
+cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
 success, img = cap.read()
-img = ResizeWithAspectRatio(img, img_width, img_height)
 
-# File Variable
-currFile = StringVar()
-currFile.set('black_screen.mp4')
+# File uploader
+file = st.file_uploader("Select File", type = ["mp4", "mov", "avi"], 
+                         accept_multiple_files = False, label_visibility = "hidden")
 
-# Gets number of frames in video
-videoLength = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+# Function that writes a BytesIO object to a file
+# Creates a file if it doesn't exist
+def write_bytesio_to_file(filename, bytesio):
+    with open(filename, "wb") as outfile:
+        # Copy the BytesIO stream to the output file
+        outfile.write(bytesio.getbuffer())
 
-success, frame = cap.read()
+# Copies selected file to local file
+temp_file_to_save = './temp_file_1.mp4'
+
+video_panel = st.container()
+curr_frame = None
+
+# If the user input file is valid, puts the video on screen
+if file:
+    write_bytesio_to_file(temp_file_to_save, file)
+
+    cap = cv2.VideoCapture(temp_file_to_save)
+    st.session_state.total_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, st.session_state['frame'])
+    success, img = cap.read()
+    img = ResizeWithAspectRatio(img, width = 1000, height = 600)
+    curr_frame = img
+    if (img is None):
+        st.text("NONE")
+
+    retval, buffer = cv2.imencode('.jpg', img)
+    binf = base64.b64encode(buffer).decode()
+    video_panel.image("data:image/png;base64,%s"%binf, channels="BGR", use_column_width=True)
+
+
+#Frame Counter
+if 'frame' not in st.session_state:  
+    st.session_state['frame'] = 1
+
+# Functions to incr/decr frame number
+def incrFrame():
+    if st.session_state.frame < st.session_state.total_frame_count - 1:
+        st.session_state['frame'] = st.session_state['frame'] + 1
+    st.text(str(st.session_state['frame']))
+
+def decrFrame():
+    if st.session_state.frame > 0:
+        st.session_state['frame'] = st.session_state['frame'] - 1
+        st.text(str(st.session_state['frame']))
+
+def incrFrame10():
+    if st.session_state.frame < st.session_state.total_frame_count - 10:
+        st.session_state['frame'] = st.session_state['frame'] + 10
+    st.text(str(st.session_state['frame']))
+
+def decrFrame10():
+    if st.session_state.frame > 10:
+        st.session_state['frame'] = st.session_state['frame'] - 10
+        st.text(str(st.session_state['frame']))
+
+# Bounding Box Variables
+if 'box_x1' not in st.session_state:
+    st.session_state['box_x1'] = -1
+if 'box_x2' not in st.session_state:
+    st.session_state['box_x2'] = -1
+if 'box_y1' not in st.session_state:
+    st.session_state['box_y1'] = -1
+if 'box_y1' not in st.session_state:
+    st.session_state['box_y2'] = -1
+
+# Extrapolation vars
+if 'cropped_frame_numbers' not in st.session_state:
+    st.session_state['cropped_frame_numbers'] = pd.DataFrame()
+
+if 'cropped_frame_x' not in st.session_state:
+    st.session_state['cropped_frame_x'] = pd.DataFrame()
+ 
+ # Number of crops done 
+if 'crop_num' not in st.session_state:
+    st.session_state['crop_num'] = 0
+
+# YOLO model
 model = YOLO('yolov8m.pt')
 results = []
 results = model(img, conf = 0.3)
 
+
 # tries to extrapolate the x coords if the detector fails
-if (len(cropped_frameX) >= 2):
-    box_w = abs(box_x1.get() - box_x2.get())
-    box_x1.set(extrapolate_box_x1(cropped_frameNumbers[-1], cropped_frameNumbers[-2], 
-                                  frameNumber.get(), cropped_frameX[-1], cropped_frameX[-2]))
-    box_x2.set(box_x1.get() + box_w)
+if (st.session_state.cropped_frame_x.size >= 2):
+    box_w = abs(st.session_state.box_x1 - st.session_state.box_x2)
+    st.session_state.box_x1.set(extrapolate_box_x1(st.session_state.cropped_frame_numbers[-1], st.session_state.cropped_frame_numbers[-2], 
+                                  st.session_state.frame_number.get(), st.session_state.cropped_frame_x[-1], st.session_state.cropped_frame_x[-2]))
+    st.session_state.box_x2 = st.session_state.box_x1 + box_w
 
 # Sets box tensor based on detector
 if (len(results) > 0):
     boxes = results[0].boxes
     if(len(boxes) > 0):
         box_tensor = boxes[0].xyxy
-        box_x1.set(int(box_tensor[0][0].item()))
-        box_y1.set(int(box_tensor[0][1].item()))
-        box_x2.set(int(box_tensor[0][2].item()))
-        box_y2.set(int(box_tensor[0][3].item()))
-
-# Converting to tkinter Image
-image1 = PIL.Image.fromarray(np.uint8(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
-frame = ImageTk.PhotoImage(image1)
-
-# Putting the frame on screen
-videoFrame = Label(window, image = frame)
-videoFrame.place(x = int(GUI_width/13.5), y = int(GUI_height/45), anchor = 'nw')
-
-# List of labels that will turn into images when the user decides to add them
-pixel = tk.PhotoImage(width=1, height=1)
-imgLabel_list = []
-img_list = []
-for i in range (10):
-    l = Label(window, image = pixel, bg = 'white')
-    imgLabel_list.append(l)
-    img_list.append(pixel)
-
+        st.session_state.box_x1 = int(box_tensor[0][0].item())
+        st.session_state.box_y1 = int(box_tensor[0][1].item())
+        st.session_state.box_x2 = int(box_tensor[0][2].item())
+        st.session_state.box_y2 = int(box_tensor[0][3].item())
 
 # Gets nth frame (tkinter img)
 def getImage(n):
     global img_width, img_height
-    cap = cv2.VideoCapture(currFile.get())
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frameNumber.get())
+    cap = cv2.VideoCapture(temp_file_to_save)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, st.session_state.frame)
     success, img = cap.read()
     
     img = ResizeWithAspectRatio(img, img_width, img_height)
-    image1 = PIL.Image.fromarray(np.uint8(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
-    frame = ImageTk.PhotoImage(image1)
-
-    return frame
-
-
-
-# Functions to parse through frames
-def incrFrame():
-    if (frameNumber.get() < videoLength-1):
-        frameNumber.set(frameNumber.get()+1)
-        img2 = getImage(frameNumber.get())
-        videoFrame.configure(image=img2)
-        videoFrame.image = img2
-
-def decrFrame():
-    if (frameNumber.get() >= 0):
-        frameNumber.set(frameNumber.get()-1)
-    img2 = getImage(frameNumber.get())
-    videoFrame.configure(image=img2)
-    videoFrame.image = img2
-
-def incrFrame10():
-    if (frameNumber.get() < videoLength-11):
-        frameNumber.set(frameNumber.get()+10)
-        img2 = getImage(frameNumber.get())
-        videoFrame.configure(image=img2)
-        videoFrame.image = img2
-
-def decrFrame10():
-    if (frameNumber.get() >= 10):
-        frameNumber.set(frameNumber.get()-10)
-    img2 = getImage(frameNumber.get())
-    videoFrame.configure(image=img2)
-    videoFrame.image = img2
+    return img
 
 # Prevent errors when cropping
 def adjustXBounds(n):
@@ -225,13 +229,12 @@ def adjustYBounds(n):
 
 # Crops image based on Pose Detection
 def cropImage():
-    global img_width, img_height, cropped_frameNumbers, cropped_frameX
+    global img_width, img_height, cropped_frame_numbers, cropped_frame_x
 
     # adding frame number of crop for x coordinate extrapolation
-    cropped_frameNumbers.append(frameNumber.get())
-
-    cap = cv2.VideoCapture(currFile.get())
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frameNumber.get())
+    st.session_state.cropped_frame_numbers.add(st.session_state.frame)
+    cap = cv2.VideoCapture(temp_file_to_save)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, st.session_state.frame)
     success, img = cap.read()
     img = ResizeWithAspectRatio(img, img_width, img_height)
 
@@ -245,14 +248,15 @@ def cropImage():
         boxes = results[0].boxes
         if(len(boxes) > 0):
             box_tensor = boxes[0].xyxy
-            box_x1.set(int(box_tensor[0][0].item()))
-            box_y1.set(int(box_tensor[0][1].item()))
-            box_x2.set(int(box_tensor[0][2].item()))
-            box_y2.set(int(box_tensor[0][3].item()))
+            st.session_state.box_x1 = int(box_tensor[0][0].item())
+            st.session_state.box_y1 = int(box_tensor[0][1].item())
+            st.session_state.box_x2 = int(box_tensor[0][2].item())
+            st.session_state.box_y2 = int(box_tensor[0][3].item())
 
     # adds padding to detector box + adds a new x coordinate reference for position extrapolation
-    x1, y1, x2, y2 = GetBoundingBox(box_x1.get(), box_y1.get(), box_x2.get(), box_y2.get(), img_width, img_height)
-    cropped_frameX.append(x1)
+    x1, y1, x2, y2 = GetBoundingBox(st.session_state.box_x1, st.session_state.box_y1, st.session_state.box_x2, 
+                                    st.session_state.box_y2, img_width, img_height)
+    st.session_state.cropped_frame_x.add(x1)
     
     # if the detection is successful then return the cropped image
     if (x1 >= 0 and y1 >= 0):
@@ -261,79 +265,103 @@ def cropImage():
         ratio = float(abs(x1-x2))/float(abs(y1-y2))
 
         image2 = image1.resize((int(ratio*4.5*GUI_width/30), int(4.5*GUI_width/30)))
-        frame = ImageTk.PhotoImage(image2)
-        return (0, frame)
+        return (0, image2)
     
     # if detection is not successful then return a fail code and a pixel image
     listImg = np.array([[0]])
     img = PIL.Image.fromarray(cv2.cvtColor(listImg, cv2.COLOR_BGR2RGB))
-    img2 = ImageTk.PhotoImage(img)
-    return (1, img2)
+    return (1, img)
 
+# Creating buttons
+button_container = st.container()
+col1, col2, col3, col4 = button_container.columns(4)
+decr_frame = col1.button('Prev Frame', on_click = decrFrame)
+incr_frame = col2.button('Next Frame', on_click = incrFrame)
+decr10_frame = col3.button('Back 10 Frames', on_click = decrFrame10)
+incr10_frame = col4.button('Forward 10 Frames', on_click = incrFrame10)
 
-# Places phase image labels
-for i in range(2):
-    for j in range(5):
-        idx = i*5 + j
-        xPos = int(GUI_width/10 + j*GUI_width/5)
-        yPos =  int(GUI_height*3/5 + i*GUI_height/4)
-        imgLabel_list[idx].place(x = xPos, y = yPos, anchor = CENTER)
+st.write('###')
 
-# Place phase name labels
-phaseNameList = ['Toe off', 'Max Vert Pos', 'Strike', 'Touch down', 'Full support']
-for i in range (5):
-    pNameLabel = Label(window, text = phaseNameList[i], font = ('TkDefaultFont', 15))
-    pNameLabel.place(x = int(GUI_width/10 + i*GUI_width/5), y = int(GUI_height*3/7), anchor = CENTER)
+# Keeps track of whether each position on the board has an image or not
+if 'been_cropped' not in st.session_state:
+    st.session_state['been_cropped'] = pd.DataFrame(np.zeros(10))
     
+# File names for files that store board images
+temp_images = []
+for i in range(10):
+    file_name = './temp_file_' + str(i) + '.jpg'
+    temp_images.append(file_name)
+
+# Makes a 1x1 black pixel image
+pixel = PIL.Image.fromarray(np.uint8(np.array([[[0, 0, 0]]])))
+image_bytes_io = BytesIO()
+pixel.save(image_bytes_io, format = "JPEG")
+
+# Put a black screen if there is no cropped image
+for i in range(10):    
+    if (st.session_state.been_cropped.at[i,0] == 0):
+        write_bytesio_to_file(temp_images[i], image_bytes_io)
 
 
 # Add an image to the board
 def pasteImage(): 
-    global imgLabel_list
-    if(cropNumber.get() < 10):
+    if(st.session_state.crop_num < 10):
         success, img = cropImage()
+        image_bytes_io = BytesIO()
+        img.save(image_bytes_io, format = "JPEG")
+
         if (success == 0):
-            l = imgLabel_list[cropNumber.get()]
-            img_list[cropNumber.get()] = img
-            l.configure(image=img)
-            l.image = img
-            cropNumber.set(cropNumber.get()+1)
+            write_bytesio_to_file(temp_images[st.session_state.crop_num], image_bytes_io)
+            st.session_state.been_cropped.at[st.session_state.crop_num, 0] = 1
+            st.session_state.crop_num = st.session_state.crop_num + 1
 
-# Remove last image from board
+# Removes the most recent image from the baord
 def removeImage():
-    global imgLabel_list, pixel
-    if (cropNumber.get() > 0):
-        cropNumber.set(cropNumber.get()-1)
-        imgLabel_list[cropNumber.get()].configure(image = pixel)
-        imgLabel_list[cropNumber.get()].image = pixel
-        img_list[cropNumber.get()] = pixel
+    if (st.session_state.crop_num > 0):
+        st.session_state.crop_num = st.session_state.crop_num - 1
+        st.session_state.been_cropped.at[st.session_state.crop_num, 0] = 0
 
-        
-def getFile():
-    global imgLabel_list, pixel, videoLength
-    # Getting file
-    file = fd.askopenfilename()
-    print('file selected: ' + file)
-    currFile.set(file)
-    frameNumber.set(0)
-    cropNumber.set(0)
-    
-    # Updating frame
-    img2 = getImage(frameNumber.get())
-    videoFrame.configure(image=img2)
-    videoFrame.image = img2
+# GUI stuff
+add_remove = st.container()
+col1, col2 = add_remove.columns(2)
+add_frame = col1.button('Add Image to Board', on_click = pasteImage)
+remove_frame = col2.button('Remove Image from Board', on_click = removeImage)
 
-    # Updating video frame count
-    cap = cv2.VideoCapture(file)
-    videoLength = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))    
+st.write('###')
+st.write('###')
 
-    # Resetting board
-    for i in range(10):
-        imgLabel_list[i].configure(image = pixel)
-        imgLabel_list[i].image = pixel
+text_labels = st.container()
+col1, col2, col3, col4, col5 = text_labels.columns(5)
+col1.text('Toe off')
+col2.text('Max Vertical Pos')
+col3.text('Strike')
+col4.text('Touch Down')
+col5.text('Full Support')
 
+fst_row = st.container()
+col11, col12, col13, col14, col15 = fst_row.columns(5)
+
+snd_row = st.container()
+col21, col22, col23, col24, col25 = snd_row.columns(5)
+
+images = [col11, col12, col13, col14, col15, col21, col22, col23, col24, col25]
+
+# Shows the images on the board
+for i in range(10):
+    pil_img = Image.open(temp_images[i])
+    img = np.array(pil_img)
+    retval, buffer = cv2.imencode('.jpg', cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    binf = base64.b64encode(buffer).decode()
+    images[i].image("data:image/png;base64,%s"%binf, channels="BGR", use_column_width=True)
+
+
+st.write('###')
+st.write('###')
+
+
+# Makes the text label for downloadable image
 def makeTextLabel():
-    global phaseNameList
+    phaseNameList = ['Toe off', 'Max Vertical Pos', 'Strike', 'Touch Down', 'Full Support']
     input = "   "
     spacing = ['     ', '     ', '    ', '    ']
     for i in range(len(phaseNameList)):
@@ -350,15 +378,11 @@ def makeTextLabel():
         output[:, i*145:(i+1)*145] = getLetter(char)
     
     return output
-    
-        
-    
 
-
-# adds black pixels around photo to make sure everything fits properly when collated
+# Adds black pixels around photo to make sure everything fits properly when collated
 def addPadToImageLabel(idx):
     global img_list
-    image = np.array(ImageTk.getimage(img_list[idx]))
+    image = np.array(Image.open(temp_images[idx]))
 
     img_w = image.shape[1]
     img_h = image.shape[0]
@@ -369,17 +393,19 @@ def addPadToImageLabel(idx):
     xStart = int(abs(width - img_w) / 2)
     yStart = int(abs(height - img_h) / 2)
 
-    output = np.zeros((height, width, 4))
+    output = np.zeros((height, width, 3))
 
-    output[yStart:yStart + img_h, xStart:xStart + img_w] = image[:,:]
+    output[yStart:yStart + img_h, xStart:xStart + img_w] = image[:,:,0:3]
+
+    # output shape (:, :, 3)
     return output
 
-
-def writeToFile():
+# Creates an numpy image that can be downloaded
+def getExportableImage():
     global imgLabel_list
     width = int(GUI_width/5) 
     height = int(4.5*GUI_width/30)
-    output = np.zeros((int(2.2*height), int(5*width), 4))
+    output = np.zeros((int(2.2*height), int(5*width), 3))
     # Collating images from the board
     for i in range(2):
         for j in range(5):
@@ -396,42 +422,21 @@ def writeToFile():
     output_with_label[:label.shape[0], :, :] = label[:,:,:]
     output_with_label[label.shape[0]:, :, :] = output[:,:,0:3]
 
+    return output_with_label
 
-    # Writing to a file
-    converted_img = PIL.Image.fromarray(np.uint8(output_with_label[:,:,:])).convert('RGB')
-    file = fd.asksaveasfilename(defaultextension=".jpg")
-    converted_img.save(file)    
-    converted_img.close()
-    
+st.write('###')
+st.write('###')
+st.write('###')
 
-# File Selector
-fileSelect = Button(window, text = "Select File", width = 14, height = 2, command = getFile, bg = 'yellow')
-fileSelect.place(x = int(5*GUI_width/8), y = int(GUI_height/22.5), anchor = 'n')
+# Writing to a file
+pil_img = PIL.Image.fromarray(np.uint8(getExportableImage()))
+image_bytes = BytesIO()
+pil_img.save(image_bytes, format = 'JPEG')
 
-# Write to image file
-saveBoard = Button(window, text = "Save Board", width = 20, height = 2, command = writeToFile, bg = 'yellow')
-saveBoard.place(x = int(5*GUI_width/8), y = int(3*GUI_height/22.5), anchor = 'n')
-
-# Increment/Decrement Frame buttons
-incrButton = Button(window, text = "Next Frame", width = 14, height = 2, command = incrFrame, bg = 'lime')
-incrButton.place(x = int(7*GUI_width/8), y = int(GUI_height/22.5), anchor = 'nw')
-decrButton = Button(window, text = "Prev Frame", width = 14, height = 2, command = decrFrame, bg = 'orange')
-decrButton.place(x = int(7*GUI_width/8), y = int(GUI_height/22.5), anchor = 'ne')
-
-# Multi-Increment/Decrement Frame buttons
-incrButton1 = Button(window, text = "Forward 10 Frames", width = 14, height = 2, command = incrFrame10, bg = 'lime')
-incrButton1.place(x = int(7*GUI_width/8), y = int(2.5*GUI_height/22.5), anchor = 'nw')
-decrButton1 = Button(window, text = "Back 10 Frames", width = 14, height = 2, command = decrFrame10, bg = 'orange')
-decrButton1.place(x = int(7*GUI_width/8), y = int(2.5*GUI_height/22.5), anchor = 'ne')
-
-# Add phase to board
-addButton = Button(window, text = "Add Frame to Board", width = 29, height = 2, command = pasteImage, bg = 'cyan')
-addButton.place(x = int(7*GUI_width/8), y = int(4.5*GUI_height/22.5), anchor = 'n')
-
-# Delete image from board
-delButton = Button(window, text = "Delete Frame from Board", width = 29, height = 2, command = removeImage, bg = 'cyan')
-delButton.place(x = int(7*GUI_width/8), y = int(6*GUI_height/22.5), anchor = 'n')
-
-
-window.mainloop()
-
+# Button do download board as an image
+st.download_button(
+    label = 'Download Board',
+    data = image_bytes.getvalue(), 
+    file_name = "board.jpg",
+    mime = "image/jpg"
+)
